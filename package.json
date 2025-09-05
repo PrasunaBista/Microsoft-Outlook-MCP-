@@ -1,0 +1,26 @@
+
+{
+  "name": "m365-mail-mcp",
+  "version": "1.1.0",
+  "description": "Microsoft 365 Mail MCP tool (Express + SQLite token store) with LLM-friendly OpenAPI.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "luxon": "^3.5.0",
+    "qs": "^6.12.3",
+    "better-sqlite3": "^9.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
+  

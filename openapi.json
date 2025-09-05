@@ -1,0 +1,252 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Microsoft 365 Mail MCP Tool",
+    "version": "1.1.2",
+    "description": "Read/search a user's Microsoft 365 mailbox via delegated auth.\n\nCLIENT RULES (per conversation/session):\n• Always reuse the SAME `user_id` for this entire conversation once it is issued by the server.\n• If a response contains { requires_login: true, user_id, login_url }, open `login_url` in a human browser, complete sign-in, then RETRY with the SAME `user_id`.\n• On every success, the response includes `user_id_used`; copy that exact value into `user_id` on your next call.\n• Never invent placeholders like `current`, `me`, `new`, or `temp`."
+  },
+  "servers": [
+    { "url": "http://host.docker.internal:3001", "description": "From Docker (OpenWebUI ➜ host)" },
+    { "url": "http://localhost:3001", "description": "From  local browser ( clicking login link)" }
+  ],
+  "paths": {
+    "/execute_tool": {
+      "post": {
+        "summary": "Execute a mailbox action",
+        "operationId": "executeTool",
+        "description": "Primary RPC for the LLM/client. On success, returns results and `user_id_used`. If auth is needed, returns `{ requires_login: true, user_id, login_url }` — open `login_url` in a browser, finish sign-in, then retry with the SAME `user_id`.",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ExecuteToolRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Tool result or login instruction", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExecuteToolResponse" } } } },
+          "400": {
+            "description": "Invalid request or Graph error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                  "user_id_required": {
+                    "summary": "Client forgot user_id; server returns training payload",
+                    "value": {
+                      "error": "user_id_required",
+                      "message": "Send the SAME `user_id` you previously received as `user_id_used`. If you don't have one yet, call once, read the `user_id` in the response, login with it, and reuse it thereafter.",
+                      "requires_login": true,
+                      "user_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                      "login_url": "http://localhost:3001/login?user_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": { "description": "Missing/invalid API key",           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequiredResponse" } } } }
+        }
+      }
+    },
+
+    "/login": {
+      "get": {
+        "summary": "Initiate Microsoft OAuth login (human browser)",
+        "operationId": "getLoginLink",
+        "description": "Redirects the browser to Microsoft sign-in for the provided `user_id` (bound in the OAuth `state`). **This route is intended for a human to open in a normal browser tab**, not for the LLM to call directly.",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Stable `user_id` that this login should attach tokens to. Obtain it from a prior `/execute_tool` response."
+          }
+        ],
+        "responses": {
+          "302": { "description": "Redirects to Microsoft login" },
+          "400": { "description": "Missing user_id" }
+        }
+      }
+    },
+
+    "/auth/callback": {
+      "get": {
+        "summary": "OAuth callback (server-exchanged tokens)",
+        "operationId": "oauthCallback",
+        "description": "Microsoft redirects here with `?code=...&state=<user_id>`. The server exchanges `code`→token, stores it under that exact `user_id`, and shows a small success page (or JSON if `?format=json`). **Humans land here after signing in.**",
+        "parameters": [
+          { "name": "code", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Authorization code from Microsoft" },
+          { "name": "state", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Echoed `user_id` you started with" },
+          { "name": "format", "in": "query", "required": false, "schema": { "type": "string", "enum": ["json", "html"] }, "description": "Optional: `json` returns `{ status, user_id, expires_in }`" }
+        ],
+        "responses": {
+          "200": { "description": "Success page (HTML) or JSON" },
+          "400": { "description": "Error exchanging the code" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API key",
+        "description": "Pass `Authorization: Bearer <API_KEY>`"
+      }
+    },
+    "schemas": {
+      "ExecuteToolRequest": {
+        "type": "object",
+        "required": ["action", "user_id"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "read_sent",
+              "read_all",
+              "list_folders",
+              "read_folder_all",
+              "read_folder_id_all",
+              "list_search_folders",
+              "read_search_folder_id_all",
+              "read_relative",
+              "search",
+              "search_all",
+              "search_by_date",
+              "search_sender_email",
+              "search_sender_name_bootstrap"
+            ],
+            "x-enumDescriptions": {
+              "read": "Newest across ALL folders (first N)",
+              "read_sent": "Newest from Sent Items (first N)",
+              "read_all": "Deep paginate whole mailbox up to `max`",
+              "list_folders": "List all folders (name & id)",
+              "read_folder_all": "Read by folder display name (localized)",
+              "read_folder_id_all": "Read by folder ID (recommended)",
+              "list_search_folders": "List virtual 'Search Folders'",
+              "read_search_folder_id_all": "Read a Search Folder by ID",
+              "read_relative": "By relative time window (today/this_week/etc.)",
+              "search": "AQS keyword search (first N)",
+              "search_all": "AQS keyword search (deep, up to `max`)",
+              "search_by_date": "Absolute date range using `startIso` & `endIso`",
+              "search_sender_email": "Full history for EXACT sender email",
+              "search_sender_name_bootstrap": "Find probable addresses by name, then crawl exact"
+            }
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable ID issued/echoed by the server. Always reuse the last `user_id_used` from the previous successful response. MUST be the exact `user_id_used` from your last successful call. Do not invent values like `current`, `me`, `temp`, or `new`."
+        }
+          },
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "top": { "type": "integer", "minimum": 1, "description": "Max items (first-page reads)" },
+              "max": { "type": "integer", "minimum": 1, "description": "Max items (deep reads)" },
+              "folder": { "type": "string", "description": "Folder display name (localized)" },
+              "folderId": { "type": "string", "description": "Folder ID (opaque, preferred)" },
+              "intent": {
+                "type": "string",
+                "enum": ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "last_n_days", "on_date", "since_date", "between"],
+                "description": "For read_relative"
+              },
+              "n": { "type": "integer", "description": "For intent=last_n_days" },
+              "on": { "type": "string", "description": "ISO date for intent=on_date" },
+              "since": { "type": "string", "description": "ISO date for intent=since_date" },
+              "start": { "type": "string", "description": "ISO date for intent=between (start)" },
+              "end": { "type": "string", "description": "ISO date for intent=between (end)" },
+              "tz": { "type": "string", "description": "IANA timezone for read_relative (optional)" },
+              "q": { "type": "string", "description": "AQS/keyword query (e.g. `from:wilson subject:task`)" },
+              "email": { "type": "string", "format": "email", "description": "Exact sender email (search_sender_email)" },
+              "name": { "type": "string", "description": "Display name (bootstrap discovery)" },
+              "maxAqs": { "type": "integer", "minimum": 1, "description": "Sample size for the AQS bootstrap" },
+              "perSenderLimit": { "type": "integer", "minimum": 1, "description": "Limit per discovered sender during exact crawl" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+
+      "LoginRequiredResponse": {
+        "type": "object",
+        "required": ["requires_login", "login_url", "user_id"],
+        "properties": {
+          "requires_login": { "type": "boolean", "enum": [true] },
+          "login_url": { "type": "string", "format": "uri", "description": "Open this in a normal browser tab to sign in" },
+          "user_id": { "type": "string", "description": "Echo this exact value as `user_id` on your next call after login" }
+        }
+      },
+
+      "MessageItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "received": { "type": "string" },
+          "sent": { "type": "string" },
+          "from": { "type": "string" },
+          "subject": { "type": "string" },
+          "preview": { "type": "string" },
+          "folderId": { "type": "string" }
+        }
+      },
+
+      "FolderItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "childFolderCount": { "type": "integer" },
+          "totalItemCount": { "type": "integer" },
+          "unreadItemCount": { "type": "integer" }
+        }
+      },
+
+      "RangeMeta": {
+        "type": "object",
+        "properties": {
+          "startIso": { "type": "string" },
+          "endIso": { "type": "string" },
+          "tz": { "type": "string" }
+        }
+      },
+
+      "ExecuteToolResponse": {
+        "type": "object",
+        "description": "On success, ALWAYS includes `user_id_used` so clients can mirror it. If login is needed, includes `requires_login`, `user_id`, and `login_url`.",
+        "properties": {
+          "user_id_used": {"format": "uuid","description": "The exact user_id the server used for this call. Always pass this same value as `user_id` on the next call throughout the conversation/session."},
+          "requires_login": { "type": "boolean" },
+          "login_url": { "type": "string" },
+          "user_id": { "type": "string" },
+          "range": { "$ref": "#/components/schemas/RangeMeta" },
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/MessageItem" } },
+          "count": { "type": "integer" },
+          "folders": { "type": "array", "items": { "$ref": "#/components/schemas/FolderItem" } },
+          "error": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+          "discoveredSenders": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      },
+
+      "ErrorResponse":{
+        "type": "object",
+        "properties": {
+          "error": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+          "message": { "type": "string" },
+          "requires_login": { "type": "boolean" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "login_url": { "type": "string", "format": "uri" }
+        },
+        "additionalProperties": true
+      }
+    }
+}
+ 
+
