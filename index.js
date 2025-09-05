@@ -14,7 +14,7 @@ const graph = require("./graph");
 const app = express();
 
 
-const API_KEY  = process.env.API_KEY || "CROWDdoingtools";
+const API_KEY  = process.env.API_KEY ||;
 const PORT     = Number(process.env.PORT || 3001);
 const HOST     = process.env.HOST || "0.0.0.0";
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
