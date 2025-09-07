@@ -2,7 +2,7 @@
  * tokenStore.js
  *
  * Tiny SQLite-backed token store. Keeps a strict 1:1 mapping of user_id → tokens.
- * We do NOT auto-refresh tokens here (no offline_access by default). When expired,
+ * I do NOT auto-refresh tokens here (no offline_access by default). When expired,
  * the API responds with { requires_login: true } and the same user_id so the client
  * can login again. This is simple, safe, and predictable.
  */
