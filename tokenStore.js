@@ -19,7 +19,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
-// Create table if it doesn't exist
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS tokens (
   user_id TEXT PRIMARY KEY,
