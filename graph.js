@@ -1,5 +1,5 @@
 /**
-  * All Graph calls live here. We centralize retry/backoff and pagination so the rest
+  * All Graph calls live here. I centralize retry/backoff and pagination so the rest
  * of the app can call these small helpers. Everything returns plain JSON the LLM can
  * easily consume.
  */
